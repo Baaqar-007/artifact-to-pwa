@@ -1,0 +1,33 @@
+{
+  "name": "artifact-to-pwa",
+  "version": "1.0.0",
+  "description": "Convert any Claude artifact (HTML/React/JSX) or public URL into an installable PWA — no build step required",
+  "type": "module",
+  "bin": {
+    "artifact-to-pwa": "./bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ],
+  "keywords": [
+    "pwa",
+    "progressive-web-app",
+    "claude",
+    "artifact",
+    "installable",
+    "offline",
+    "cli",
+    "converter"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0"
+  }
+}
