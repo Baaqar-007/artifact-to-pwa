@@ -1,0 +1,79 @@
+# artifact-to-pwa
+
+> Convert any Claude artifact (HTML / React / JSX) or public URL into an installable Progressive Web App — no build step, no Android Studio, no Xcode.
+
+## Usage
+
+```bash
+# From a local file
+npx artifact-to-pwa ./my-app.jsx
+
+# From a published Claude artifact URL
+npx artifact-to-pwa https://claude.site/artifacts/abc123
+
+# With options
+npx artifact-to-pwa ./app.html --name "My Tool" --color "#ff6b6b" --out ./dist
+```
+
+## Options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-n, --name <name>` | App name | Derived from filename / URL |
+| `-s, --short-name <name>` | Home screen label (max ~12 chars) | First 12 chars of name |
+| `-d, --description <text>` | App description | |
+| `-c, --color <hex>` | Theme / accent color | `#6366f1` |
+| `-b, --bg <hex>` | Splash background color | `#ffffff` |
+| `-o, --out <dir>` | Output directory | `./<slug>-pwa` |
+
+## What it generates
+
+```
+my-app-pwa/
+├── index.html    ← your app, PWA-ready
+├── manifest.json ← name, icon, colors, display mode
+├── sw.js         ← service worker (offline support)
+├── icon.svg      ← auto-generated app icon
+└── README.md     ← install instructions
+```
+
+## How to install the PWA
+
+### Desktop / Android (Chrome or Edge)
+```bash
+npx serve my-app-pwa
+```
+Open the URL → click the **Install** icon in the address bar.
+
+### iPhone / iPad (Safari)
+Deploy the folder anywhere static (see below), open in Safari → **Share** → **Add to Home Screen**.
+
+### One-click deploy options
+
+| Host | Command |
+|------|---------|
+| **Netlify** | Drag the folder to [netlify.com/drop](https://netlify.com/drop) |
+| **Vercel** | `npx vercel my-app-pwa` |
+| **GitHub Pages** | Push folder contents, enable Pages in repo settings |
+
+## Supported source formats
+
+| Format | Detection |
+|--------|-----------|
+| Full HTML document | `<!DOCTYPE html>` or `<html>` present |
+| HTML fragment | Partial markup without doctype |
+| React / JSX | `import React`, `useState`, `export default function`, JSX syntax |
+| Public URL | Embedded as a full-screen iframe |
+
+React artifacts are served using Babel standalone + CDN React — **no bundler needed**.
+
+## Why PWA instead of APK?
+
+- **Zero build tooling** — no Android Studio, no Xcode, no Java
+- **Cross-platform** — installs on Android, iOS, Windows, macOS, Linux
+- **Always up to date** — users get the latest version automatically
+- **Offline support** — built-in service worker caches assets
+
+---
+
+Made with ❤️ to keep Claude artifacts alive outside the chat.
