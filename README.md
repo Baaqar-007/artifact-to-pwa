@@ -1,10 +1,11 @@
-[![npm version](https://img.shields.io/npm/v/@baaqar/artifact-to-pwa)](https://www.npmjs.com/package/@baaqar/artifact-to-pwa)
-[![npm downloads](https://img.shields.io/npm/dw/@baaqar/artifact-to-pwa)](https://www.npmjs.com/package/@baaqar/artifact-to-pwa)
-[![license](https://img.shields.io/npm/l/@baaqar/artifact-to-pwa)](./LICENSE)
-[![node](https://img.shields.io/node/v/@baaqar/artifact-to-pwa)](https://nodejs.org)
 # artifact-to-pwa
 
 > Convert any Claude artifact (HTML / React / JSX) or public URL into an installable Progressive Web App — no build step, no Android Studio, no Xcode.
+
+[![npm version](https://img.shields.io/npm/v/artifact-to-pwa)](https://www.npmjs.com/package/artifact-to-pwa)
+[![npm downloads](https://img.shields.io/npm/dw/artifact-to-pwa)](https://www.npmjs.com/package/artifact-to-pwa)
+[![license](https://img.shields.io/npm/l/artifact-to-pwa)](./LICENSE)
+[![node](https://img.shields.io/node/v/artifact-to-pwa)](https://nodejs.org)
 
 ## Usage
 
@@ -39,6 +40,25 @@ my-app-pwa/
 ├── sw.js         ← service worker (offline support)
 ├── icon.svg      ← auto-generated app icon
 └── README.md     ← install instructions
+```
+
+## Persistent storage — automatic localStorage migration
+
+Artifacts that use `localStorage` (todo lists, streak trackers, heatmaps, settings)
+will have their data automatically migrated to **IndexedDB** when converted.
+
+No code changes needed. The tool detects `localStorage` usage and injects a
+transparent shim that:
+
+- keeps the exact same `localStorage` API your artifact already uses
+- stores all data in IndexedDB instead, which persists across PWA installs and updates
+- pre-populates an in-memory mirror on load so reads stay synchronous
+- briefly hides the page on startup until saved data is ready — preventing a flash of empty state
+
+You'll see this in the CLI output when it applies:
+
+```
+  ⚡ localStorage detected → auto-migrating to IndexedDB
 ```
 
 ## How to install the PWA

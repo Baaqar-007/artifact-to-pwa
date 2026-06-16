@@ -1,6 +1,6 @@
 {
-  "name": "@baaqar/artifact-to-pwa",
-  "version": "1.0.0",
+  "name": "artifact-to-pwa",
+  "version": "1.1.0",
   "description": "Convert any Claude artifact (HTML/React/JSX) or public URL into an installable PWA — no build step required",
   "type": "module",
   "bin": {
@@ -19,7 +19,9 @@
     "installable",
     "offline",
     "cli",
-    "converter"
+    "converter",
+    "indexeddb",
+    "localStorage"
   ],
   "author": "",
   "license": "MIT",
