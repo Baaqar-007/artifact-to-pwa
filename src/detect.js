@@ -1,3 +1,5 @@
+import { hasLocalStorage, getStorageShim } from './storage.js';
+
 /**
  * Detects whether a string of source code is:
  *   "full-html"     — a complete <!DOCTYPE html> document
@@ -35,10 +37,15 @@ export function detectCodeType(code) {
 
 /**
  * Wraps source code into a complete, PWA-ready index.html.
- * Injects manifest link, theme-color meta, and SW registration.
+ * Injects manifest link, theme-color meta, SW registration,
+ * and — when localStorage usage is detected — an IndexedDB shim
+ * so stored data survives across origins and installs.
  */
 export function wrapCode(code, { appName, themeColor }) {
   const type = detectCodeType(code);
+
+  // Inject the shim as the FIRST script so it runs before any app code
+  const shim = hasLocalStorage(code) ? getStorageShim() : '';
 
   const headInjects = `
   <meta name="theme-color" content="${themeColor}">
@@ -61,11 +68,19 @@ export function wrapCode(code, { appName, themeColor }) {
   if (type === 'full-html') {
     let result = code;
 
-    // Inject into existing <head>
+    // Inject shim as very first thing inside <head> (before any other scripts)
+    if (shim) {
+      if (/<head[^>]*>/i.test(result)) {
+        result = result.replace(/(<head[^>]*>)/i, `$1\n  ${shim}`);
+      } else {
+        result = result.replace(/(<html[^>]*>)/i, `$1\n<head>\n  ${shim}\n</head>`);
+      }
+    }
+
+    // Inject PWA meta + manifest into </head>
     if (/<\/head>/i.test(result)) {
       result = result.replace(/<\/head>/i, `  ${headInjects}\n</head>`);
     } else {
-      // No </head>: inject after <html> or at top
       result = result.replace(/(<html[^>]*>)/i, `$1\n<head>\n  ${headInjects}\n</head>`);
     }
 
@@ -104,6 +119,7 @@ export function wrapCode(code, { appName, themeColor }) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${appName}</title>
+  ${shim}
   ${headInjects}
   <!-- React + Babel (no build step) -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -136,6 +152,7 @@ ${renderLine}
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${appName}</title>
+  ${shim}
   ${headInjects}
   ${swScript}
 </head>
