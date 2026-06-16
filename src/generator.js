@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { join, basename, extname } from 'path';
 import { detectCodeType }                              from './detect.js';
+import { hasLocalStorage }                             from './storage.js';
 import { generateSVGIcon }                             from './icons.js';
 import { buildIndexHTML, buildManifest, buildServiceWorker, buildReadme } from './templates.js';
 
@@ -75,6 +76,15 @@ export async function generatePWA(source, options) {
     code = readFileSync(source, 'utf8');
     const detectedType = detectCodeType(code);
     console.log(chalk.gray(`  ↳ Detected: `) + chalk.yellow(detectedType));
+
+    // Warn + auto-fix localStorage usage
+    if (hasLocalStorage(code)) {
+      console.log(
+        chalk.yellow('  ⚡ localStorage detected') +
+        chalk.gray(' → auto-migrating to IndexedDB (data will persist across installs)')
+      );
+    }
+
     console.log();
   }
 
