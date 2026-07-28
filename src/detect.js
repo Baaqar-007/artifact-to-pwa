@@ -1,11 +1,15 @@
-import { hasLocalStorage, getStorageShim } from './storage.js';
 
 /**
- * Detects whether a string of source code is:
- *   "full-html"     — a complete <!DOCTYPE html> document
- *   "html-fragment" — partial HTML without doctype/html tags
- *   "react"         — JSX / React component
+ * Detects the type of artifact source code and wraps it into a complete,
+ * self-contained HTML document.
+ *
+ * v2 changes vs v1:
+ *   - Removed localStorage→IndexedDB shim (replaced by data portability widget)
+ *   - Removed service worker injection (not needed for single local file)
+ *   - Removed manifest injection (PWA install requires HTTPS hosting anyway)
+ *   - Cleaner wrapping with explicit empty-output guard
  */
+
 export function detectCodeType(code) {
   const t = code.trim();
 
@@ -22,87 +26,51 @@ export function detectCodeType(code) {
     /useEffect\s*\(/,
     /React\.createElement/,
     /return\s*\(\s*</,
-    /=>\s*\(/,        // arrow fn returning JSX
-    /<>\s*</,         // fragment shorthand
+    /<>\s*</,
   ];
 
   if (reactSignals.some(re => re.test(t))) return 'react';
-
-  // Looks like it starts with an HTML tag but has no doctype
   if (/^<[a-zA-Z]/.test(t)) return 'html-fragment';
-
-  // Default: treat as an HTML fragment
   return 'html-fragment';
 }
 
-/**
- * Wraps source code into a complete, PWA-ready index.html.
- * Injects manifest link, theme-color meta, SW registration,
- * and — when localStorage usage is detected — an IndexedDB shim
- * so stored data survives across origins and installs.
- */
 export function wrapCode(code, { appName, themeColor }) {
+  if (!code || !code.trim()) {
+    throw new Error('Source code is empty — nothing to wrap.');
+  }
+
   const type = detectCodeType(code);
 
-  // Inject the shim as the FIRST script so it runs before any app code
-  const shim = hasLocalStorage(code) ? getStorageShim() : '';
+  const baseMeta = [
+    '<meta charset="UTF-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+    `<meta name="theme-color" content="${themeColor}">`,
+    `<title>${appName}</title>`,
+  ].join('\n  ');
 
-  const headInjects = `
-  <meta name="theme-color" content="${themeColor}">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="${appName}">
-  <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="manifest" href="manifest.json">`.trim();
-
-  const swScript = `
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () =>
-      navigator.serviceWorker.register('sw.js').catch(() => {})
-    );
-  }
-</script>`.trim();
-
-  // ── Full HTML document ────────────────────────────────────────────────────
   if (type === 'full-html') {
     let result = code;
-
-    // Inject shim as very first thing inside <head> (before any other scripts)
-    if (shim) {
-      if (/<head[^>]*>/i.test(result)) {
-        result = result.replace(/(<head[^>]*>)/i, `$1\n  ${shim}`);
-      } else {
-        result = result.replace(/(<html[^>]*>)/i, `$1\n<head>\n  ${shim}\n</head>`);
-      }
+    if (/<title>/i.test(result)) {
+      result = result.replace(/<title>[^<]*<\/title>/i, `<title>${appName}</title>`);
+    } else if (/<\/head>/i.test(result)) {
+      result = result.replace(/<\/head>/i, `  <title>${appName}</title>\n</head>`);
     }
-
-    // Inject PWA meta + manifest into </head>
-    if (/<\/head>/i.test(result)) {
-      result = result.replace(/<\/head>/i, `  ${headInjects}\n</head>`);
-    } else {
-      result = result.replace(/(<html[^>]*>)/i, `$1\n<head>\n  ${headInjects}\n</head>`);
+    if (!result.includes('theme-color') && /<\/head>/i.test(result)) {
+      result = result.replace(
+        /<\/head>/i,
+        `  <meta name="theme-color" content="${themeColor}">\n</head>`
+      );
     }
-
-    // Inject SW before </body>
-    if (/<\/body>/i.test(result)) {
-      result = result.replace(/<\/body>/i, `  ${swScript}\n</body>`);
-    } else {
-      result += `\n${swScript}`;
-    }
-
     return result;
   }
 
-  // ── React / JSX ───────────────────────────────────────────────────────────
   if (type === 'react') {
-    // Strip top-level React imports (provided by CDN)
     let cleaned = code
       .replace(/^import\s+React[^;]*;\s*/gm, '')
       .replace(/^import\s*\{[^}]+\}\s*from\s*['"]react['"];\s*/gm, '')
+      .replace(/^import\s*\*\s*as\s*React[^;]*;\s*/gm, '')
       .trim();
 
-    // Normalize export default → __App
     cleaned = cleaned
       .replace(/^export\s+default\s+function\s+(\w+)/, 'function __App')
       .replace(/^export\s+default\s+class\s+(\w+)/, 'class __App')
@@ -111,23 +79,19 @@ export function wrapCode(code, { appName, themeColor }) {
     const hasApp = /\b__App\b/.test(cleaned);
     const renderLine = hasApp
       ? `ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(__App));`
-      : `/* Could not auto-detect root component — update the render call below */`;
+      : `/* artifact-to-pwa: could not detect a default export — add a render call manually */`;
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${appName}</title>
-  ${shim}
-  ${headInjects}
-  <!-- React + Babel (no build step) -->
+  ${baseMeta}
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>html,body,#root{height:100%;margin:0;padding:0;}</style>
-  ${swScript}
+  <style>
+    html, body, #root { height: 100%; margin: 0; padding: 0; }
+  </style>
 </head>
 <body>
   <div id="root"></div>
@@ -145,16 +109,10 @@ ${renderLine}
 </html>`;
   }
 
-  // ── HTML fragment ─────────────────────────────────────────────────────────
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${appName}</title>
-  ${shim}
-  ${headInjects}
-  ${swScript}
+  ${baseMeta}
 </head>
 <body>
 ${code}
