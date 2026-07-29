@@ -1,18 +1,15 @@
 name: Publish to npm
 
-# This triggers the workflow automatically when you push a new version tag (e.g., v1.0.0, v2.0.1)
 on:
   push:
     tags:
       - 'v*' 
-  # This allows you to manually trigger a publish from the GitHub Actions tab if needed
   workflow_dispatch: 
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     
-    # CRITICAL: These permissions are strictly required for OIDC Trusted Publishing to work
     permissions:
       contents: read
       id-token: write 
@@ -24,17 +21,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x' # Using a modern Node version (22.14+ required for this feature)
+          node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
 
-      # Install your dependencies cleanly
       - name: Install dependencies
         run: npm ci
 
-      # Build your package (if you have a build script in package.json)
-      # - name: Build
-      #   run: npm run build
-
-      # Publish using OIDC (Notice: There is NO token or secret configured here!)
       - name: Publish to npm
-        run: npm publish --access public
+        run: npm publish --provenance --access public
