@@ -37,4 +37,4 @@ jobs:
 
       # Publish using OIDC (Notice: There is NO token or secret configured here!)
       - name: Publish to npm
-        run: npm publish
+        run: npm publish -- access public
