@@ -1,6 +1,11 @@
 # artifact-to-pwa
 
-> Convert any Claude artifact (HTML / React / JSX) or public URL into a **native Windows .exe** — no Rust, no compiler, no App Store.
+[![npm version](https://img.shields.io/npm/v/artifact-to-pwa)](https://www.npmjs.com/package/artifact-to-pwa)
+[![npm downloads](https://img.shields.io/npm/dw/artifact-to-pwa)](https://www.npmjs.com/package/artifact-to-pwa)
+[![license](https://img.shields.io/npm/l/artifact-to-pwa)](./LICENSE)
+[![node](https://img.shields.io/node/v/artifact-to-pwa)](https://nodejs.org)
+
+> Convert any Claude artifact (HTML / React / JSX) or public URL into a **native Windows .exe** — no Rust, no compiler, no App Store. (Note: The tool now generates native desktop apps to guarantee offline storage, retaining the artifact-to-pwa name for legacy continuity).
 
 ## Usage
 
