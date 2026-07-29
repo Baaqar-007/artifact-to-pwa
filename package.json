@@ -1,7 +1,7 @@
 {
   "name": "@baaqar/artifact-to-pwa",
   "version": "2.0.0",
-  "description": "Convert any Claude artifact (HTML/React/JSX) or public URL into a native Windows .exe — no compiler, no App Store",
+  "description": "Convert any Claude artifact (HTML/React/JSX) or public URL into a native Windows .exe; no compiler, no App Store",
   "type": "module",
   "publishConfig": { "access": "public" },
   "bin": {
@@ -18,6 +18,10 @@
     "electron", "windows", "exe", "desktop",
     "react", "jsx", "standalone", "converter"
   ],
+    "repository": {
+    "type": "git",
+    "url": "https://github.com/Baaqar-007/artifact-to-pwa"
+  },
   "author": "",
   "license": "MIT",
   "engines": { "node": ">=18" },
