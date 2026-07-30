@@ -1,40 +1,18 @@
 /**
- * URL fetcher — downloads HTML at build time (no iframe).
- * Provides clear manual-fallback instructions on bot-protection responses.
+ * URL handler — v2.1.0
+ * Fix #1: URL support deprecated — throws with actionable instructions
  */
 
 export async function fetchURL(url) {
-  let res;
-  try {
-    res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.9',
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(30_000),
-    });
-  } catch (err) {
-    if (err.name === 'TimeoutError') throw new Error(
-      `Request timed out (30s).\n\n` +
-      `  Manual fallback:\n    1. Open ${url} in Chrome\n` +
-      `    2. Ctrl+S \u2192 "Webpage, HTML Only"\n` +
-      `    3. npx artifact-to-pwa ./saved.html --name "My App"`
-    );
-    throw new Error(`Network error: ${err.message}`);
-  }
-
-  if ([401, 403, 429].includes(res.status)) throw new Error(
-    `HTTP ${res.status} \u2014 page may require login or bot challenge.\n\n` +
-    `  Manual fallback:\n    1. Open ${url} in Chrome\n` +
-    `    2. Ctrl+S \u2192 "Webpage, HTML Only"\n` +
-    `    3. npx artifact-to-pwa ./downloaded.html --name "My App"\n\n` +
-    `  CDP auto-bypass is planned for v2.1.`
+  throw new Error(
+    `URL input was removed in v2.1.0.\n\n` +
+    `  Anthropic's servers block direct scraping via X-Frame-Options headers,\n` +
+    `  making URL conversion unreliable for all artifact URLs.\n\n` +
+    `  How to convert a Claude artifact in 3 steps:\n\n` +
+    `    1. Open your artifact in Claude\n` +
+    `    2. Click the \`<>\` (source code) button in the artifact toolbar,\n` +
+    `       then copy-paste into a file  (save as .jsx or .html)\n` +
+    `    3. Run:  npx artifact-to-pwa ./your-artifact.jsx --name "My App"\n\n` +
+    `  Supported file formats: .html  .jsx  .js  .tsx\n`
   );
-
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} from: ${url}`);
-
-  const html = await res.text();
-  if (!html.trim()) throw new Error(`URL returned an empty response: ${url}`);
-  return html;
 }

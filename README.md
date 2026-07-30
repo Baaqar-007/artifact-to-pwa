@@ -5,58 +5,58 @@
 [![license](https://img.shields.io/npm/l/@baaqar/artifact-to-pwa)](./LICENSE)
 [![node](https://img.shields.io/node/v/@baaqar/artifact-to-pwa)](https://nodejs.org)
 
-> Convert any Claude artifact (HTML / React / JSX) or public URL into a **native Windows .exe** — no Rust, no compiler, no App Store. (Note: The tool now generates native desktop apps to guarantee offline storage, retaining the artifact-to-pwa name for legacy continuity).
+> Convert any Claude artifact (.jsx / .html) into a **native Windows .exe** — no Rust, no compiler, no App Store.
 
 ## Usage
 
 ```bash
 npx artifact-to-pwa ./my-app.jsx
-npx artifact-to-pwa https://claude.site/artifacts/abc123
-npx artifact-to-pwa ./app.jsx --name "My Tool" --icon ./icon.png
+npx artifact-to-pwa ./app.html --name "My Tool"
+npx artifact-to-pwa ./app.jsx  --name "My Tool" --icon ./icon.png
 ```
 
-First run downloads a prebuilt Electron shell (~85 MB, cached permanently). Subsequent builds finish in under a second.
+**To get your artifact file from Claude:**
+Open the artifact → click the `<>` source button → save as `.jsx` or `.html`
 
 ## Output
 
 ```
 my-tool-windows/
-├── My Tool.exe          ← double-click to launch
-├── *.dll / *.pak        ← Electron runtime (required)
-├── resources/app/       ← your artifact
-└── README-Launch.txt    ← SmartScreen bypass instructions
+├── Start My Tool.bat    ← double-click to launch
+├── README-Launch.txt
+└── _internal/           ← Electron runtime (do not delete)
+    ├── My Tool.exe
+    ├── *.dll / *.pak
+    └── resources/app/
 ```
-
-To share: **zip the entire folder** and send it.
 
 ## Options
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-n, --name` | App name | From filename/URL |
+| `-n, --name` | App name | From filename |
 | `-c, --color` | Theme color | `#6366f1` |
-| `-i, --icon` | `.png` icon path | Electron default |
+| `-i, --icon` | `.png` icon | Electron default |
 | `-o, --out` | Output directory | `./<slug>-windows` |
 
 ## Persistent storage
 
-All `localStorage` calls are intercepted and persisted to `%APPDATA%\<AppName>\storage.json`. Survives restarts, re-installs, and OS reboots. Zero code changes needed in your artifact.
-
-## Launching on Windows
-
-The `.exe` is unsigned. On first launch click **More info → Run anyway**. Full instructions are in `README-Launch.txt`.
+All `localStorage` calls are persisted to `%APPDATA%\<AppName>\storage.json`. Data survives restarts, reinstalls, and reboots. Zero code changes needed.
 
 ## Changelog
 
-### v2.0.0
-- Native Windows `.exe` via prebuilt Electron binary injection
-- esbuild bundler — fully offline at runtime, no Babel CDN
-- Atomic file-system storage via Electron IPC
-- Ephemeral npm install for third-party dependencies
-- Icon support via `--icon` (PNG → ICO + rcedit)
+### v2.1.0
+- Fix #1 — URL input deprecated (Anthropic blocks scraping via X-Frame-Options)
+- Fix #2 — Clean output: Electron internals moved to `_internal/`, batch launcher at root
+- Fix #3 — Storage persistence: IPC handlers registered before window creation
+- Fix #4 — React import crash: comprehensive stripping of all import variants
+- Fix #5 — Error handling: ora spinners, global try/catch, proper exit codes
+- Dep: esbuild `^0.25.0`
 
+### v2.0.1 — esbuild CORS patch
+### v2.0.0 — Native Windows .exe via Electron injection
 ### v1.1.0 — localStorage → IndexedDB shim
-### v1.0.0 — Initial release (PWA folder output)
+### v1.0.0 — Initial release
 
 ---
 Made to keep Claude artifacts alive outside the chat.
