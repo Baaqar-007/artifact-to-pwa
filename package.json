@@ -1,6 +1,6 @@
 {
   "name": "@baaqar/artifact-to-pwa",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "Convert any Claude artifact (HTML/React/JSX) or public URL into a native Windows .exe; no compiler, no App Store",
   "type": "module",
   "publishConfig": { "access": "public" },
@@ -34,3 +34,4 @@
     "rcedit":      "^4.0.0"
   }
 }
+
