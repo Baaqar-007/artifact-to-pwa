@@ -1,47 +1,42 @@
 /**
- * Electron shell downloader and cache manager.
- *
- * Downloads a prebuilt Electron binary for Windows (win32-x64) from the
- * official GitHub Releases, caches it in ~/.artifact-to-pwa/shells/, and
- * returns the path to the extracted directory.
- *
- * Subsequent builds are instant — the ~85 MB download only happens once.
+ * Neutralino binary fetcher — v3.0.0
+ * Dynamically downloads neutralino-win_x64.exe and neutralino.js
+ * from GitHub Releases. Caches in ~/.artifact-to-pwa/neutralino-<version>/.
+ * No binaries bundled in the npm package.
  */
 
 import { createWriteStream, existsSync, mkdirSync } from 'fs';
-import { join }       from 'path';
-import { homedir }    from 'os';
-import extractZip     from 'extract-zip';
-import { tmpdir }     from 'os';
+import { join }    from 'path';
+import { homedir } from 'os';
 
-const CACHE_ROOT = join(homedir(), '.artifact-to-pwa', 'shells');
+const CACHE_ROOT = join(homedir(), '.artifact-to-pwa', 'neutralino');
+const REPO       = 'neutralinojs/neutralinojs';
 
 async function resolveLatestVersion() {
   const res = await fetch(
-    'https://api.github.com/repos/electron/electron/releases/latest',
+    `https://api.github.com/repos/${REPO}/releases/latest`,
     { headers: { 'User-Agent': 'artifact-to-pwa' } }
   );
-  if (!res.ok) throw new Error(`GitHub API ${res.status} resolving Electron version`);
-  const data = await res.json();
-  return data.tag_name.replace(/^v/, '');
+  if (!res.ok) throw new Error(`GitHub API ${res.status} resolving Neutralino version`);
+  return (await res.json()).tag_name.replace(/^v/, '');
 }
 
-function buildDownloadURL(version) {
-  return `https://github.com/electron/electron/releases/download/v${version}/electron-v${version}-win32-x64.zip`;
+function assetURL(version, filename) {
+  return `https://github.com/${REPO}/releases/download/v${version}/${filename}`;
 }
 
-async function downloadWithProgress(url, destPath, chalk) {
+async function downloadFile(url, destPath, chalk, label) {
   const res = await fetch(url, {
     headers: { 'User-Agent': 'artifact-to-pwa' },
     redirect: 'follow',
-    signal: AbortSignal.timeout(5 * 60_000),
+    signal: AbortSignal.timeout(3 * 60_000),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status} downloading Electron shell`);
+  if (!res.ok) throw new Error(`HTTP ${res.status} downloading ${label}`);
 
   const total   = parseInt(res.headers.get('content-length') || '0', 10);
-  const totalMB = (total / 1024 / 1024).toFixed(0);
-  let   downloaded = 0;
-  const BAR = 24;
+  const totalKB = (total / 1024).toFixed(0);
+  let downloaded = 0;
+  const BAR = 20;
 
   const dest   = createWriteStream(destPath);
   const reader = res.body.getReader();
@@ -52,56 +47,44 @@ async function downloadWithProgress(url, destPath, chalk) {
     if (done) break;
     await write(value);
     downloaded += value.length;
-    const pct    = total ? downloaded / total : 0;
-    const filled = Math.round(pct * BAR);
-    const bar    = '\u2588'.repeat(filled) + '\u2591'.repeat(BAR - filled);
-    const mb     = (downloaded / 1024 / 1024).toFixed(1);
-    process.stdout.write(`\r  ${chalk.gray('[')}${chalk.cyan(bar)}${chalk.gray(']')} ${chalk.white(mb)} / ${totalMB} MB`);
+    if (total > 0) {
+      const filled = Math.round((downloaded / total) * BAR);
+      const bar    = '\u2588'.repeat(filled) + '\u2591'.repeat(BAR - filled);
+      const kb     = (downloaded / 1024).toFixed(0);
+      process.stdout.write(`\r  ${chalk.gray(`[${bar}]`)} ${chalk.white(`${kb} / ${totalKB} KB`)}  ${chalk.gray(label)}`);
+    }
   }
-  process.stdout.write('\n');
+  if (total > 0) process.stdout.write('\n');
   await new Promise((res, rej) => dest.end(e => e ? rej(e) : res()));
 }
 
 export async function ensureShell(chalk) {
   let version;
-  try {
-    version = await resolveLatestVersion();
-  } catch (err) {
-    throw new Error(`Could not resolve Electron version: ${err.message}`);
+  try { version = await resolveLatestVersion(); }
+  catch (err) { throw new Error(`Could not resolve Neutralino version: ${err.message}`); }
+
+  const cacheDir      = join(CACHE_ROOT, `v${version}`);
+  const binPath       = join(cacheDir, 'neutralino-win_x64.exe');
+  const clientLibPath = join(cacheDir, 'neutralino.js');
+
+  if (existsSync(binPath) && existsSync(clientLibPath)) {
+    console.log(chalk.gray('  \u21b3 Runtime   ') + chalk.white(`Neutralino v${version}`) + chalk.gray(' (cached)'));
+    return { binPath, clientLibPath, version };
   }
 
-  const shellDir = join(CACHE_ROOT, `electron-${version}-win32-x64`);
-
-  if (existsSync(join(shellDir, 'electron.exe'))) {
-    console.log(chalk.gray(`  \u21b3 Shell    `) + chalk.white(`Electron ${version}`) + chalk.gray(` (cached)`));
-    return shellDir;
-  }
-
-  console.log(chalk.gray(`  \u21b3 Shell    `) + chalk.white(`Electron ${version}`) + chalk.gray(` \u2014 downloading...`));
-  mkdirSync(CACHE_ROOT, { recursive: true });
-
-  const zipPath = join(tmpdir(), `electron-${version}-win32-x64.zip`);
+  console.log(chalk.gray('  \u21b3 Runtime   ') + chalk.white(`Neutralino v${version}`) + chalk.gray(' \u2014 downloading...'));
+  mkdirSync(cacheDir, { recursive: true });
 
   try {
-    await downloadWithProgress(buildDownloadURL(version), zipPath, chalk);
+    await downloadFile(assetURL(version, 'neutralino-win_x64.exe'), binPath,       chalk, 'neutralino-win_x64.exe');
+    await downloadFile(assetURL(version, 'neutralino.js'),          clientLibPath, chalk, 'neutralino.js');
   } catch (err) {
-    throw new Error(`Download failed: ${err.message}`);
+    throw new Error(`Failed to download Neutralino assets:\n  ${err.message}`);
   }
 
-  process.stdout.write(chalk.gray('  \u21b3 Extracting...'));
-  try {
-    mkdirSync(shellDir, { recursive: true });
-    await extractZip(zipPath, { dir: shellDir });
-    console.log(' ' + chalk.green('done'));
-  } catch (err) {
-    throw new Error(`Extraction failed: ${err.message}`);
-  } finally {
-    try { (await import('fs')).unlinkSync(zipPath); } catch {}
+  if (!existsSync(binPath) || !existsSync(clientLibPath)) {
+    throw new Error(`Download finished but files missing in ${cacheDir}`);
   }
 
-  if (!existsSync(join(shellDir, 'electron.exe'))) {
-    throw new Error(`electron.exe not found after extraction in ${shellDir}`);
-  }
-
-  return shellDir;
+  return { binPath, clientLibPath, version };
 }
