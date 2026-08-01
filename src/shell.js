@@ -128,9 +128,16 @@ function verifyDigest(filePath, assetDigest) {
 // ── Download with progress bar ────────────────────────────────────────────────
 
 async function downloadToFile(url, destPath, chalk, label) {
-  const res = await fetchWithRetry(url, {}, 3);
-  if (!res.ok) throw new Error(`HTTP ${res.status} downloading ${label}`);
-
+  const res = await fetchWithRetry(url, { headers: { 'Accept': 'application/octet-stream' } }, 3);  if (!res.ok) throw new Error(`HTTP ${res.status} downloading ${label}`);
+  const ct = res.headers.get('content-type') ?? '';
+  if (ct.includes('text/html') || ct.includes('application/json')) {
+    throw new Error(
+      `Expected a binary file but the server returned ${ct}.\n` +
+      `  URL: ${url}\n` +
+      `  This usually means the download URL resolved to a login page or API metadata.\n` +
+      `  Check that browser_download_url is correct for release v${NEUTRALINO_VERSION}.`
+    );
+  }
   const total   = Math.max(0, parseInt(res.headers.get('content-length') || '0', 10));  const totalKB = (total / 1024).toFixed(0);
   let   dl = 0;
   const BAR = 20;
@@ -244,8 +251,8 @@ export async function ensureShell(chalk) {
   const zipPath = join(cacheDir, zipAsset.name);
 
   await Promise.all([
-    downloadToFile(zipAsset.url || zipAsset.browser_download_url, zipPath, chalk, zipAsset.name),
-    downloadToFile(clientAsset.url || clientAsset.browser_download_url, clientLibPath, chalk, 'neutralino.js'),
+    downloadToFile(zipAsset.browser_download_url, zipPath, chalk, zipAsset.name),
+    downloadToFile(clientAsset.browser_download_url, clientLibPath, chalk, 'neutralino.js'),
   ]);
 
   // ── Verify integrity ───────────────────────────────────────────────────────
