@@ -13,8 +13,8 @@
  */
 
 import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs';
-import { join }             from 'path';
-import { homedir, tmpdir }  from 'os';
+import { join, dirname }             from 'path';
+import { homedir }  from 'os';
 import { execSync }         from 'child_process';
 import { createHash }       from 'crypto';
 import * as esbuild         from 'esbuild';
@@ -166,8 +166,8 @@ export async function bundleFile(filePath, { appName, themeColor }, spinner) {
   const { code: processed, rootComponent } = normaliseDefaultExport(stripped);
 
   // Write a temporary esbuild entry that provides React and mounts the component
-  const entryPath = join(tmpdir(), `atp-${Date.now()}.jsx`);
-  writeFileSync(
+  const artifactDir = dirname(filePath);   // same folder as the artifact
+  const entryPath   = join(artifactDir, `.atp-entry-${Date.now()}.jsx`);  writeFileSync(
     entryPath,
     `import React, {\n` +
     `  useState, useEffect, useRef, useCallback,\n` +

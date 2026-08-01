@@ -131,8 +131,7 @@ async function downloadToFile(url, destPath, chalk, label) {
   const res = await fetchWithRetry(url, {}, 3);
   if (!res.ok) throw new Error(`HTTP ${res.status} downloading ${label}`);
 
-  const total   = parseInt(res.headers.get('content-length') || '0', 10);
-  const totalKB = (total / 1024).toFixed(0);
+  const total   = Math.max(0, parseInt(res.headers.get('content-length') || '0', 10));  const totalKB = (total / 1024).toFixed(0);
   let   dl = 0;
   const BAR = 20;
 
@@ -146,9 +145,10 @@ async function downloadToFile(url, destPath, chalk, label) {
     await write(value);
     dl += value.length;
     if (total > 0) {
-      const f = Math.round((dl / total) * BAR);
-      process.stdout.write(
-        `\r  [${chalk.cyan('█'.repeat(f) + '░'.repeat(BAR - f))}] ` +
+    const pct = Math.min(1, dl / total);          // clamp to [0,1] — guards overshoot
+    const f   = Math.min(BAR, Math.max(0, Math.round(pct * BAR)));  // clamp to [0,BAR]
+    process.stdout.write(
+    `\r  [${chalk.cyan('█'.repeat(f) + '░'.repeat(BAR - f))}] ` +
         `${chalk.white((dl / 1024).toFixed(0))} / ${totalKB} KB  ${chalk.gray(label)}`
       );
     }
