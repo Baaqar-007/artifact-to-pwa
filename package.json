@@ -1,10 +1,12 @@
 {
-  "name": "artifact-to-pwa",
+  "name": "@baaqar/artifact-to-pwa",
   "version": "3.0.0",
   "description": "Convert any Claude artifact (HTML/React/JSX) into a native Windows .exe — ~5 MB output via Neutralino + WebView2",
   "type": "module",
+  "publishConfig": { "access": "public" },
+
   "bin": {
-    "artifact-to-pwa": "./bin/cli.js"
+    "@baaqar/artifact-to-pwa": "./bin/cli.js"
   },
   "files": [
     "bin/",
@@ -21,6 +23,10 @@
     "neutralino", "webview2", "windows", "exe", "desktop",
     "react", "jsx", "standalone", "converter"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Baaqar-007/artifact-to-pwa"
+  },
   "author": "",
   "license": "MIT",
   "engines": {
