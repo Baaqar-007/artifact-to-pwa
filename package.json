@@ -1,19 +1,38 @@
 {
-  "name": "@baaqar/artifact-to-pwa",
+  "name": "artifact-to-pwa",
   "version": "3.0.0",
   "description": "Convert any Claude artifact (HTML/React/JSX) into a native Windows .exe — ~5 MB output via Neutralino + WebView2",
   "type": "module",
-  "bin": { "@baaqar/artifact-to-pwa": "./bin/cli.js" },
-  "files": ["bin/", "src/", "README.md"],
-  "keywords": ["pwa","claude","artifact","cli","neutralino","webview2","windows","exe","desktop","react","jsx","standalone","converter"],
-  "author": "", "license": "MIT",
-  "engines": { "node": ">=18" },
+  "bin": {
+    "artifact-to-pwa": "./bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "docs/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/compat.test.js",
+    "test:skip-bundle": "SKIP_BUNDLE_TESTS=1 node --test test/compat.test.js"
+  },
+  "keywords": [
+    "pwa", "claude", "artifact", "cli",
+    "neutralino", "webview2", "windows", "exe", "desktop",
+    "react", "jsx", "standalone", "converter"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "chalk":      "^5.3.0",
-    "commander":  "^12.1.0",
-    "esbuild":    "^0.25.0",
-    "ora":        "^8.1.1",
-    "png-to-ico": "^2.1.8",
-    "rcedit":     "^4.0.0"
+    "chalk":       "^5.3.0",
+    "commander":   "^12.1.0",
+    "esbuild":     "^0.25.0",
+    "extract-zip": "^2.0.1",
+    "ora":         "^8.1.1",
+    "png-to-ico":  "^2.1.8",
+    "rcedit":      "^4.0.0"
   }
 }

@@ -1,41 +1,139 @@
 /**
  * Neutralino binary fetcher — v3.0.0
- * Dynamically downloads neutralino-win_x64.exe and neutralino.js
- * from GitHub Releases. Caches in ~/.artifact-to-pwa/neutralino-<version>/.
- * No binaries bundled in the npm package.
+ *
+ * CHANGES FROM v2.2.0:
+ *
+ *   FIX 404: The previous code tried to download `neutralino-win_x64.exe`
+ *   directly, which does not exist as a standalone asset. Neutralino distributes
+ *   ALL platform binaries inside a single ZIP (`neutralino.zip`) per release.
+ *   The Windows exe (`neutralino-win_x64.exe`) and its required DLL
+ *   (`WebView2Loader.dll`) must be extracted from that ZIP.
+ *
+ *   The client library (`neutralino.js`) is in a SEPARATE repo:
+ *   neutralinojs/neutralino.js — it has its own releases with its own tags.
+ *
+ *   HARDEN: Version is now pinned to a tested release instead of "latest".
+ *   Changing NEUTRALINO_VERSION is the single place to upgrade.
+ *
+ *   HARDEN: Both files are downloaded in parallel via Promise.all.
+ *
+ *   HARDEN: Downloads retry up to 3 times with exponential back-off on
+ *   transient errors (429, 502, 503, network timeout).
+ *
+ *   HARDEN: SHA-256 integrity is verified after every download using the
+ *   `digest` field from GitHub's releases API (format: "sha256:HEXSTRING").
+ *   The asset digest is fetched from the API on every run but the file is
+ *   only downloaded if not already cached. The cached file is re-verified
+ *   before use to detect disk corruption or tampering.
  */
 
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
-import { join }    from 'path';
-import { homedir } from 'os';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { join }      from 'path';
+import { homedir }   from 'os';
+import { createHash } from 'crypto';
+import extractZip    from 'extract-zip';
 
-const CACHE_ROOT = join(homedir(), '.artifact-to-pwa', 'neutralino');
-const REPO       = 'neutralinojs/neutralinojs';
+// ── Pinned versions ───────────────────────────────────────────────────────────
+// Update these together when upgrading. Run the test suite after any bump.
+export const NEUTRALINO_VERSION = '6.7.0'; // binary runtime
+export const CLIENT_VERSION     = '6.7.0'; // must match binary major version
 
-async function resolveLatestVersion() {
-  const res = await fetch(
-    `https://api.github.com/repos/${REPO}/releases/latest`,
-    { headers: { 'User-Agent': 'artifact-to-pwa' } }
-  );
-  if (!res.ok) throw new Error(`GitHub API ${res.status} resolving Neutralino version`);
-  return (await res.json()).tag_name.replace(/^v/, '');
+const BINARY_REPO = 'neutralinojs/neutralinojs';
+const CLIENT_REPO = 'neutralinojs/neutralino.js';
+const CACHE_ROOT  = join(homedir(), '.artifact-to-pwa', 'neutralino');
+
+// ── Retry-aware fetch ─────────────────────────────────────────────────────────
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function fetchWithRetry(url, opts = {}, maxAttempts = 3) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, {
+        ...opts,
+        headers: { 'User-Agent': 'artifact-to-pwa', ...opts.headers },
+        signal:  AbortSignal.timeout(30_000),
+      });
+      // Retry on transient server errors
+      if ([429, 502, 503].includes(res.status) && attempt < maxAttempts) {
+        const delay = attempt * 2_000;
+        await sleep(delay);
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) await sleep(attempt * 2_000);
+    }
+  }
+  throw lastErr ?? new Error(`Request failed after ${maxAttempts} attempts: ${url}`);
 }
 
-function assetURL(version, filename) {
-  return `https://github.com/${REPO}/releases/download/v${version}/${filename}`;
+// ── GitHub releases API ───────────────────────────────────────────────────────
+
+/**
+ * Fetches the assets list for a specific tag from the GitHub API.
+ * Returns an array of { name, browser_download_url, digest, size }.
+ *
+ * `digest` is populated by GitHub as "sha256:<hex>" when available.
+ * All stable Neutralino releases include it.
+ */
+async function fetchReleaseAssets(repo, version) {
+  const url = `https://api.github.com/repos/${repo}/releases/tags/v${version}`;
+  const res = await fetchWithRetry(url);
+  if (!res.ok) {
+    throw new Error(
+      `GitHub API returned ${res.status} for ${repo}@v${version}.\n` +
+      `  Verify the version exists at: https://github.com/${repo}/releases/tag/v${version}`
+    );
+  }
+  const release = await res.json();
+  if (!release.assets?.length) {
+    throw new Error(`No assets found for ${repo}@v${version}`);
+  }
+  return release.assets;
 }
 
-async function downloadFile(url, destPath, chalk, label) {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'artifact-to-pwa' },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(3 * 60_000),
-  });
+// ── SHA-256 helpers ───────────────────────────────────────────────────────────
+
+function computeSHA256(filePath) {
+  return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+}
+
+/**
+ * Verifies a file against a GitHub asset digest string ("sha256:HEXSTRING").
+ * Throws with a clear message if the check fails.
+ */
+function verifyDigest(filePath, assetDigest) {
+  if (!assetDigest) {
+    // Digest not provided by API — skip but warn
+    console.warn(`  ⚠  No digest available for ${filePath} — skipping integrity check`);
+    return;
+  }
+  const expected = assetDigest.replace(/^sha256:/i, '').toLowerCase();
+  const actual   = computeSHA256(filePath);
+  if (actual !== expected) {
+    throw new Error(
+      `Integrity check FAILED for ${filePath}\n` +
+      `  Expected SHA-256: ${expected}\n` +
+      `  Got:              ${actual}\n` +
+      `  The file may be corrupted or tampered with. Delete the cache at:\n` +
+      `    ${CACHE_ROOT}\n` +
+      `  and re-run to force a fresh download.`
+    );
+  }
+}
+
+// ── Download with progress bar ────────────────────────────────────────────────
+
+async function downloadToFile(url, destPath, chalk, label) {
+  const res = await fetchWithRetry(url, {}, 3);
   if (!res.ok) throw new Error(`HTTP ${res.status} downloading ${label}`);
 
   const total   = parseInt(res.headers.get('content-length') || '0', 10);
   const totalKB = (total / 1024).toFixed(0);
-  let downloaded = 0;
+  let   dl = 0;
   const BAR = 20;
 
   const dest   = createWriteStream(destPath);
@@ -46,45 +144,143 @@ async function downloadFile(url, destPath, chalk, label) {
     const { done, value } = await reader.read();
     if (done) break;
     await write(value);
-    downloaded += value.length;
+    dl += value.length;
     if (total > 0) {
-      const filled = Math.round((downloaded / total) * BAR);
-      const bar    = '\u2588'.repeat(filled) + '\u2591'.repeat(BAR - filled);
-      const kb     = (downloaded / 1024).toFixed(0);
-      process.stdout.write(`\r  ${chalk.gray(`[${bar}]`)} ${chalk.white(`${kb} / ${totalKB} KB`)}  ${chalk.gray(label)}`);
+      const f = Math.round((dl / total) * BAR);
+      process.stdout.write(
+        `\r  [${chalk.cyan('█'.repeat(f) + '░'.repeat(BAR - f))}] ` +
+        `${chalk.white((dl / 1024).toFixed(0))} / ${totalKB} KB  ${chalk.gray(label)}`
+      );
     }
   }
   if (total > 0) process.stdout.write('\n');
   await new Promise((res, rej) => dest.end(e => e ? rej(e) : res()));
 }
 
+// ── Main export ───────────────────────────────────────────────────────────────
+
+/**
+ * Ensures the Neutralino binary ZIP and client library are cached locally.
+ *
+ * Downloads both in parallel, verifies SHA-256 via GitHub API asset digests,
+ * extracts the Windows binary and WebView2Loader.dll from the ZIP.
+ *
+ * @returns {Promise<{ binPath, dllPath, clientLibPath, version }>}
+ *   dllPath may be null if WebView2Loader.dll is not present in the ZIP.
+ */
 export async function ensureShell(chalk) {
-  let version;
-  try { version = await resolveLatestVersion(); }
-  catch (err) { throw new Error(`Could not resolve Neutralino version: ${err.message}`); }
-
-  const cacheDir      = join(CACHE_ROOT, `v${version}`);
+  const cacheDir      = join(CACHE_ROOT, `v${NEUTRALINO_VERSION}`);
   const binPath       = join(cacheDir, 'neutralino-win_x64.exe');
+  const dllPath       = join(cacheDir, 'WebView2Loader.dll');
   const clientLibPath = join(cacheDir, 'neutralino.js');
+  const digestFile    = join(cacheDir, 'digests.json');
 
-  if (existsSync(binPath) && existsSync(clientLibPath)) {
-    console.log(chalk.gray('  \u21b3 Runtime   ') + chalk.white(`Neutralino v${version}`) + chalk.gray(' (cached)'));
-    return { binPath, clientLibPath, version };
+  const allCached = existsSync(binPath) && existsSync(clientLibPath);
+
+  if (allCached) {
+    console.log(
+      chalk.gray('  ↳ Runtime   ') +
+      chalk.white(`Neutralino v${NEUTRALINO_VERSION}`) +
+      chalk.gray(' (cached)')
+    );
+
+    // Re-verify cached files against stored digests to detect disk corruption
+    if (existsSync(digestFile)) {
+      const storedDigests = JSON.parse(readFileSync(digestFile, 'utf8'));
+      try {
+        verifyDigest(binPath,       storedDigests.bin);
+        verifyDigest(clientLibPath, storedDigests.client);
+      } catch (err) {
+        throw new Error(`Cached file integrity check failed:\n  ${err.message}`);
+      }
+    }
+
+    return {
+      binPath,
+      dllPath: existsSync(dllPath) ? dllPath : null,
+      clientLibPath,
+      version: NEUTRALINO_VERSION,
+    };
   }
 
-  console.log(chalk.gray('  \u21b3 Runtime   ') + chalk.white(`Neutralino v${version}`) + chalk.gray(' \u2014 downloading...'));
+  console.log(
+    chalk.gray('  ↳ Runtime   ') +
+    chalk.white(`Neutralino v${NEUTRALINO_VERSION}`) +
+    chalk.gray(' — fetching asset info...')
+  );
+
   mkdirSync(cacheDir, { recursive: true });
 
-  try {
-    await downloadFile(assetURL(version, 'neutralino-win_x64.exe'), binPath,       chalk, 'neutralino-win_x64.exe');
-    await downloadFile(assetURL(version, 'neutralino.js'),          clientLibPath, chalk, 'neutralino.js');
-  } catch (err) {
-    throw new Error(`Failed to download Neutralino assets:\n  ${err.message}`);
+  // ── Fetch asset lists from both repos in parallel ─────────────────────────
+  const [binAssets, clientAssets] = await Promise.all([
+    fetchReleaseAssets(BINARY_REPO, NEUTRALINO_VERSION),
+    fetchReleaseAssets(CLIENT_REPO, CLIENT_VERSION),
+  ]);
+
+  // Locate the binary ZIP (skip auto-generated source archives)
+  const zipAsset = binAssets.find(
+    a => a.name.endsWith('.zip') && !/source/i.test(a.name)
+  );
+  if (!zipAsset) {
+    throw new Error(
+      `Could not locate binary ZIP in ${BINARY_REPO} v${NEUTRALINO_VERSION} assets.\n` +
+      `  Available assets: ${binAssets.map(a => a.name).join(', ')}`
+    );
   }
 
-  if (!existsSync(binPath) || !existsSync(clientLibPath)) {
-    throw new Error(`Download finished but files missing in ${cacheDir}`);
+  // Locate neutralino.js client library
+  const clientAsset = clientAssets.find(a => a.name === 'neutralino.js');
+  if (!clientAsset) {
+    throw new Error(
+      `Could not locate neutralino.js in ${CLIENT_REPO} v${CLIENT_VERSION} assets.\n` +
+      `  Available assets: ${clientAssets.map(a => a.name).join(', ')}`
+    );
   }
 
-  return { binPath, clientLibPath, version };
+  console.log(chalk.gray(`  ↳ Found     `) + chalk.white(`${zipAsset.name}`) + chalk.gray(` + neutralino.js`));
+  console.log(chalk.gray('  ↳ Downloading both in parallel...'));
+
+  // ── Download both files in parallel ───────────────────────────────────────
+  const zipPath = join(cacheDir, zipAsset.name);
+
+  await Promise.all([
+    downloadToFile(zipAsset.url || zipAsset.browser_download_url, zipPath, chalk, zipAsset.name),
+    downloadToFile(clientAsset.url || clientAsset.browser_download_url, clientLibPath, chalk, 'neutralino.js'),
+  ]);
+
+  // ── Verify integrity ───────────────────────────────────────────────────────
+  process.stdout.write(chalk.gray('  ↳ Verifying...'));
+  verifyDigest(zipPath,       zipAsset.digest);
+  verifyDigest(clientLibPath, clientAsset.digest);
+  console.log(' ' + chalk.green('ok'));
+
+  // ── Extract binary and DLL from ZIP ───────────────────────────────────────
+  process.stdout.write(chalk.gray('  ↳ Extracting...'));
+  await extractZip(zipPath, { dir: cacheDir });
+  console.log(' ' + chalk.green('done'));
+
+  // Confirm the Windows binary is present after extraction
+  if (!existsSync(binPath)) {
+    throw new Error(
+      `neutralino-win_x64.exe not found in ZIP after extraction.\n` +
+      `  Extracted to: ${cacheDir}\n` +
+      `  The asset names may have changed — check: https://github.com/${BINARY_REPO}/releases/tag/v${NEUTRALINO_VERSION}`
+    );
+  }
+
+  // Store digests for future cache verification
+  writeFileSync(digestFile, JSON.stringify({
+    bin:    zipAsset.digest    ?? computeSHA256(zipPath),
+    client: clientAsset.digest ?? computeSHA256(clientLibPath),
+  }, null, 2));
+
+  // Clean up the ZIP (binaries are now extracted)
+  try { (await import('fs')).default.unlinkSync(zipPath); } catch {}
+
+  return {
+    binPath,
+    dllPath: existsSync(dllPath) ? dllPath : null,
+    clientLibPath,
+    version: NEUTRALINO_VERSION,
+  };
 }
