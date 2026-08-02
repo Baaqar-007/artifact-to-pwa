@@ -476,7 +476,7 @@ common esbuild and npm failures, and `process.exit(1)` on every error path.
 
 ---
 
-### v2.2.0 — Switch from Electron to Neutralino
+### v3.0.0 — Neutralino Migration & Production Hardening
 
 **The core problem with Electron:** a 350 MB output for a 5-page artifact with
 a heatmap is objectively wrong. The artifact logic is ~50 KB. The Electron
@@ -519,11 +519,7 @@ because the initial plan assumed Neutralino binaries were single files. When
 the actual download was found to be a ZIP (in v3.0.0), extract-zip was added
 back.
 
----
-
-### v3.0.0 — Hardening and Claude Compatibility
-
-The v2.2.0 architecture was correct but had several production issues discovered
+The architecture was correct but had several production issues discovered
 during real-world testing.
 
 **Bug 1 — HTTP 404 on binary download.**
@@ -682,6 +678,12 @@ src/build.js            ← Orchestrates the three stages
 ## Changelog
 
 ### v3.0.0
+
+- Switch from Electron to Neutralino — output drops from ~350 MB to ~5 MB
+- localStorage persists natively via WebView2 profile (no shim needed)
+- Dynamic binary fetching — Neutralino binary not bundled in npm package
+- Removed `extract-zip`, `template/main.js`, `template/preload.js`
+- Deterministic port-per-app for stable localStorage origin
 - Fix: GitHub assets API used for download URL discovery (no more hardcoded filenames)
 - Fix: binaries extracted from `neutralino.zip`, not downloaded as raw EXEs
 - Fix: `browser_download_url` always used — `url` field returns JSON metadata
@@ -699,12 +701,7 @@ src/build.js            ← Orchestrates the three stages
 - Test: `test/compat.test.js` compatibility suite (Node built-in test runner)
 - Docs: `docs/UNSUPPORTED.md` with Neutralino API alternatives
 
-### v2.2.0
-- Switch from Electron to Neutralino — output drops from ~350 MB to ~5 MB
-- localStorage persists natively via WebView2 profile (no shim needed)
-- Dynamic binary fetching — Neutralino binary not bundled in npm package
-- Removed `extract-zip`, `template/main.js`, `template/preload.js`
-- Deterministic port-per-app for stable localStorage origin
+
 
 ### v2.1.0
 - URL input deprecated (Anthropic X-Frame-Options blocks all scraping)
