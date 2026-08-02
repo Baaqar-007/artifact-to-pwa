@@ -1,95 +1,237 @@
 /**
- * Windows payload injector — v2.1.0
- * Fix #2: Electron internals moved to _internal/, batch launcher at root
+ * Neutralino payload injector — v3.0.0
+ *
+ * CHANGES FROM v2.2.0:
+ *   - WebView2Loader.dll is now copied alongside the exe when present.
+ *     In some Neutralino versions this DLL must be co-located with the binary
+ *     for WebView2 to initialise correctly on Windows.
+ *     shell.js returns dllPath (string | null); inject.js copies it if non-null.
+ *   - portFromSlug exported for use by build.js and tests.
+ *
+ * OUTPUT STRUCTURE (unchanged):
+ *   <AppName>-windows/
+ *   ├── <AppName>.exe
+ *   ├── WebView2Loader.dll        ← new (when present in Neutralino release)
+ *   ├── neutralino.config.json
+ *   ├── resources/
+ *   │   ├── index.html
+ *   │   ├── icons/appIcon.png     ← when --icon provided
+ *   │   └── js/neutralino.js
+ *   └── README-Launch.txt
  */
 
-import { cpSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import {
+  cpSync, mkdirSync, writeFileSync, readFileSync,
+  existsSync, copyFileSync,
+} from 'fs';
+import { join } from 'path';
 
-const __dirname    = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_DIR = join(__dirname, '..', 'template');
+// ── Port derivation ───────────────────────────────────────────────────────────
 
-function launchReadme(appName) {
+/**
+ * Derives a deterministic localhost port from the app slug.
+ * Range: 49152–65533 (IANA dynamic/private port range).
+ * Each app gets its own port so their localStorage origins are isolated.
+ */
+export function portFromSlug(slug) {
+  let h = 0;
+  for (const c of slug) h = Math.imul(h, 31) + c.charCodeAt(0) | 0;
+  return 49152 + (Math.abs(h) % 16382);
+}
+
+// ── Neutralino config ─────────────────────────────────────────────────────────
+
+function buildConfig({ appName, slug, port, version, hasIcon }) {
+  return JSON.stringify({
+    applicationId:   `com.artifact-to-pwa.${slug}`,
+    version:         '1.0.0',
+    defaultMode:     'window',
+    port,
+    documentRoot:    '/resources/',
+    url:             '/',
+    enableServer:    true,
+    enableNativeAPI: true,
+    tokenSecurity:   'one-time',
+    logging:         { enabled: false, writeToLogFile: false },
+    nativeBlockList: [],
+    globalVariables: {},
+    modes: {
+      window: {
+        title:              appName,
+        width:              1280,
+        height:             800,
+        minWidth:           400,
+        minHeight:          300,
+        resizable:          true,
+        exitProcessOnClose: true,
+        enableInspector:    false,
+        ...(hasIcon ? { icon: '/resources/icons/appIcon.png' } : {}),
+      },
+    },
+    cli: {
+      binaryName:     slug,
+      resourcesPath:  '/resources/',
+      extensionsPath: '/extensions/',
+      clientLibrary:  '/resources/js/neutralino.js',
+      binaryVersion:  version,
+      clientVersion:  version,
+    },
+  }, null, 2);
+}
+
+// ── README-Launch.txt ─────────────────────────────────────────────────────────
+
+function launchReadme(appName, slug) {
   return [
     `${appName} — built by artifact-to-pwa`,
-    '='.repeat(appName.length + 24), '',
-    'HOW TO LAUNCH', '-------------',
-    `Double-click:  Start ${appName}.bat`, '',
-    'If Windows SmartScreen shows "Windows protected your PC":',
-    '  1. Click "More info"', '  2. Click "Run anyway"', '',
-    'This warning appears once per machine for unsigned apps.', '',
-    'WHY IS THERE A _internal/ FOLDER?', '----------------------------------',
-    'The _internal/ folder contains the Electron runtime that powers this app.',
-    'Do not delete or move it — the app will not launch without it.',
-    'When sharing: zip the entire folder including _internal/.', '',
-    'YOUR DATA', '---------',
-    'All app data is stored at:',
-    `  Windows: %APPDATA%\\${appName}\\storage.json`, '',
+    '='.repeat(appName.length + 24),
+    '',
+    'HOW TO LAUNCH',
+    '-------------',
+    `Double-click: ${appName}.exe`,
+    '',
+    'REQUIREMENTS',
+    '------------',
+    'This app requires the Microsoft WebView2 runtime.',
+    '',
+    'Pre-installed on:',
+    '  • Windows 11 (all versions)',
+    '  • Windows 10 updated after January 2023',
+    '',
+    'If the app fails to open, download WebView2 (1.5 MB) from:',
+    '  https://developer.microsoft.com/microsoft-edge/webview2/',
+    '  (Choose "Evergreen Bootstrapper")',
+    '',
+    'SMARTSCREEN WARNING',
+    '-------------------',
+    'If Windows shows "Windows protected your PC":',
+    '  1. Click "More info"',
+    '  2. Click "Run anyway"',
+    'This appears once per machine for unsigned apps.',
+    '',
+    'YOUR DATA',
+    '---------',
+    'App data is stored by Windows at:',
+    `  %LOCALAPPDATA%\\com.artifact-to-pwa.${slug}\\EBWebView\\`,
+    '(Standard WebView2 profile — managed by Windows.)',
+    '',
+    'TO SHARE',
+    '--------',
+    'Zip the entire folder and send it.',
+    'Recipients will also need WebView2 installed (see above).',
+    '',
     '---',
     'Generated by artifact-to-pwa  https://github.com/Baaqar-007/artifact-to-pwa',
   ].join('\n');
 }
 
-function batchLauncher(appName) {
-  return `@echo off\r\ncd /d "%~dp0_internal"\r\nstart "" "${appName}.exe"\r\n`;
-}
+// ── Main export ───────────────────────────────────────────────────────────────
 
-export async function injectPayload({ shellDir, html, appName, slug, outDir, iconPath, chalk }) {
-  const internalDir = join(outDir, '_internal');
-  process.stdout.write(chalk.gray('  ↳ Copying shell to _internal/...'));
-  mkdirSync(internalDir, { recursive: true });
-  cpSync(shellDir, internalDir, { recursive: true });
+/**
+ * @param {object} opts
+ * @param {string}      opts.binPath
+ * @param {string|null} opts.dllPath           - WebView2Loader.dll (may be null)
+ * @param {string}      opts.clientLibPath
+ * @param {string}      opts.html
+ * @param {string}      opts.appName
+ * @param {string}      opts.slug
+ * @param {number}      opts.port
+ * @param {string}      opts.neutralinoVersion
+ * @param {string}      opts.outDir
+ * @param {string|null} opts.iconPath
+ * @param {object}      opts.chalk
+ */
+export async function injectPayload({
+  binPath, dllPath, clientLibPath,
+  html, appName, slug, port, neutralinoVersion,
+  outDir, iconPath, chalk,
+}) {
+  // Create directory structure
+  const resourcesDir = join(outDir, 'resources');
+  const jsDir        = join(resourcesDir, 'js');
+  mkdirSync(jsDir, { recursive: true });
+
+  // ── Copy and rename Neutralino binary ──────────────────────────────────────
+  process.stdout.write(chalk.gray('  ↳ Copying runtime...'));
+  const exeDest = join(outDir, `${appName}.exe`);
+  cpSync(binPath, exeDest);
   console.log(' ' + chalk.green('done'));
 
-  const appDir = join(internalDir, 'resources', 'app');
-  const webDir = join(appDir, 'web');
-  mkdirSync(webDir, { recursive: true });
-
-  writeFileSync(join(appDir, 'package.json'), JSON.stringify({ name: slug, version: '1.0.0', main: 'main.js' }, null, 2));
-  copyFileSync(join(TEMPLATE_DIR, 'main.js'),    join(appDir, 'main.js'));
-  copyFileSync(join(TEMPLATE_DIR, 'preload.js'), join(appDir, 'preload.js'));
-  writeFileSync(join(webDir, 'index.html'), html, 'utf8');
-
-  const verify = readFileSync(join(webDir, 'index.html'), 'utf8');
-  if (!verify.trim()) throw new Error('index.html written empty — possible disk issue.');
-  console.log(chalk.green('  ✓ ') + chalk.gray('_internal/resources/app/ created'));
-
-  const exeSrc  = join(internalDir, 'electron.exe');
-  const exeDest = join(internalDir, `${appName}.exe`);
-  if (!existsSync(exeSrc)) throw new Error(`electron.exe not found in shell: ${internalDir}`);
-  cpSync(exeSrc, exeDest);
-
-  const rceditOpts = {
-    'version-string': { FileDescription: appName, ProductName: appName, OriginalFilename: `${appName}.exe` },
-    'file-version': '1.0.0.0', 'product-version': '1.0.0.0',
-  };
-
-  if (iconPath) {
-    process.stdout.write(chalk.gray('  ↳ Converting icon...'));
+  // ── Copy WebView2Loader.dll if present ─────────────────────────────────────
+  if (dllPath) {
+    process.stdout.write(chalk.gray('  ↳ Copying WebView2Loader.dll...'));
     try {
-      const { default: pngToIco } = await import('png-to-ico');
-      const icoBuffer = await pngToIco(iconPath);
-      const icoPath   = join(internalDir, '_icon.ico');
-      writeFileSync(icoPath, icoBuffer);
-      rceditOpts.icon = icoPath;
+      copyFileSync(dllPath, join(outDir, 'WebView2Loader.dll'));
       console.log(' ' + chalk.green('done'));
-    } catch (err) { console.log(' ' + chalk.yellow('skipped') + chalk.gray(` (${err.message})`)); }
+    } catch (err) {
+      console.log(' ' + chalk.yellow('skipped') + chalk.gray(` (${err.message})`));
+    }
   }
 
+  // ── Icon handling ──────────────────────────────────────────────────────────
+  let hasIcon = false;
+  if (iconPath) {
+    process.stdout.write(chalk.gray('  ↳ Copying icon...'));
+    try {
+      const iconsDir = join(resourcesDir, 'icons');
+      mkdirSync(iconsDir, { recursive: true });
+      copyFileSync(iconPath, join(iconsDir, 'appIcon.png'));
+      hasIcon = true;
+      console.log(' ' + chalk.green('done'));
+    } catch (err) {
+      console.log(' ' + chalk.yellow('skipped') + chalk.gray(` (${err.message})`));
+    }
+  }
+
+  // ── Patch exe metadata and icon via rcedit ─────────────────────────────────
   process.stdout.write(chalk.gray('  ↳ Patching exe...'));
   try {
     const { default: rcedit } = await import('rcedit');
-    await rcedit(exeDest, rceditOpts);
+    const opts = {
+      'version-string': {
+        FileDescription:  appName,
+        ProductName:      appName,
+        OriginalFilename: `${appName}.exe`,
+      },
+      'file-version':    '1.0.0.0',
+      'product-version': '1.0.0.0',
+    };
+    if (iconPath) {
+      try {
+        const { default: pngToIco } = await import('png-to-ico');
+        const ico = await pngToIco(iconPath);
+        const icoPath = join(outDir, '_icon.ico');
+        writeFileSync(icoPath, ico);
+        opts.icon = icoPath;
+      } catch {}
+    }
+    await rcedit(exeDest, opts);
     console.log(' ' + chalk.green('done'));
   } catch (err) {
-    console.log(' ' + chalk.yellow('skipped') + chalk.gray(` — rcedit: ${err.message}`));
+    console.log(' ' + chalk.yellow('skipped') + chalk.gray(` — ${err.message}`));
   }
 
-  try { (await import('fs')).default.unlinkSync(exeSrc); } catch {}
+  // ── Write neutralino.config.json ──────────────────────────────────────────
+  writeFileSync(
+    join(outDir, 'neutralino.config.json'),
+    buildConfig({ appName, slug, port, version: neutralinoVersion, hasIcon })
+  );
+  console.log(chalk.green('  ✓ ') + chalk.gray('neutralino.config.json'));
 
-  writeFileSync(join(outDir, `Start ${appName}.bat`), batchLauncher(appName));
-  console.log(chalk.green('  ✓ ') + chalk.gray(`Start ${appName}.bat created`));
-  writeFileSync(join(outDir, 'README-Launch.txt'), launchReadme(appName));
-  console.log(chalk.green('  ✓ ') + chalk.gray('README-Launch.txt written'));
+  // ── Copy Neutralino client library ────────────────────────────────────────
+  copyFileSync(clientLibPath, join(jsDir, 'neutralino.js'));
+  console.log(chalk.green('  ✓ ') + chalk.gray('resources/js/neutralino.js'));
+
+  // ── Write artifact HTML ───────────────────────────────────────────────────
+  writeFileSync(join(resourcesDir, 'index.html'), html, 'utf8');
+  const written = readFileSync(join(resourcesDir, 'index.html'), 'utf8');
+  if (!written.trim()) throw new Error('index.html is empty after write — disk issue?');
+  console.log(
+    chalk.green('  ✓ ') +
+    chalk.gray(`resources/index.html (${(written.length / 1024).toFixed(0)} kB)`)
+  );
+
+  // ── Write README-Launch.txt ───────────────────────────────────────────────
+  writeFileSync(join(outDir, 'README-Launch.txt'), launchReadme(appName, slug));
+  console.log(chalk.green('  ✓ ') + chalk.gray('README-Launch.txt'));
 }
