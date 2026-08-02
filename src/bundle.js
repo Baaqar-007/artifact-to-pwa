@@ -1,23 +1,26 @@
 /**
  * Artifact bundler — v3.0.0
  *
- * CHANGES FROM v2.2.0:
- *   - Detection logic imported from src/detect.js (hardening item #8)
- *   - React pinned to 18.3.1 in ephemeral install instead of "latest"
- *     (hardening item #3)
- *   - npm cache directory is now keyed by a SHA-256 hash of the full
- *     dependency set, so different artifacts with different deps get isolated
- *     caches and stale installs never bleed through (hardening item #7)
- *   - Unsupported imports (Node builtins, Express, etc.) now surface a
- *     human-readable error from detect.js before esbuild even runs
+ * Changes in this version:
+ *   - CLAUDE_RUNTIME_SHIM imported from runtime.js and prepended to every
+ *     generated page before the Neutralino bridge. This injects window.storage
+ *     and any future Claude runtime shims automatically.
+ *   - Temporary esbuild entry file is now written alongside the artifact
+ *     (same directory) instead of os.tmpdir(). This fixes relative import
+ *     resolution for CSS, images, and any other files the artifact imports
+ *     with paths like "./styles.css" or "./icon.png".
+ *   - React pinned to 18.3.1 in ephemeral install.
+ *   - npm cache directory keyed by SHA-256 of the dependency set.
+ *   - Detection, import extraction, and stripping imported from detect.js.
  */
 
 import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync } from 'fs';
-import { join, dirname }             from 'path';
-import { homedir }  from 'os';
+import { join, dirname }    from 'path';
+import { homedir }          from 'os';
 import { execSync }         from 'child_process';
 import { createHash }       from 'crypto';
 import * as esbuild         from 'esbuild';
+import { CLAUDE_RUNTIME_SHIM } from './runtime.js';
 import {
   detectArtifactType,
   extractBareImports,
@@ -26,16 +29,21 @@ import {
 } from './detect.js';
 
 // ── Pinned versions ───────────────────────────────────────────────────────────
-// Update these when upgrading React. Run the compat test suite after any bump.
 const PINNED_REACT_VERSION     = '18.3.1';
 const PINNED_REACT_DOM_VERSION = '18.3.1';
 
-// ── Neutralino client bridge injection ───────────────────────────────────────
-// Injected as the first script in <head> so Neutralino.init() runs before
-// any app code. Guarded by typeof check so the same HTML works if opened
-// in a regular browser (e.g. during local development with npx serve).
+// ── Injection block ───────────────────────────────────────────────────────────
+// Injection order (executed top-to-bottom in the browser):
+//   1. CLAUDE_RUNTIME_SHIM  — window.storage and future Claude API shims
+//   2. neutralino.js        — Neutralino client bridge
+//   3. Neutralino.init()    — starts the IPC handshake with the binary
+//
+// The runtime shim MUST come first so it is available before app code.
+// The typeof guard on Neutralino.init() makes the HTML safe to open in a
+// regular browser during development (e.g. npx serve).
 
 export const NEUTRALINO_INJECT = [
+  CLAUDE_RUNTIME_SHIM,
   `<script src="/js/neutralino.js"></script>`,
   `<script>if (typeof Neutralino !== 'undefined') Neutralino.init();</script>`,
 ].join('\n');
@@ -51,14 +59,6 @@ function injectNeutralinoScript(html) {
 
 // ── Dependency cache keyed by dep-set hash ────────────────────────────────────
 
-/**
- * Returns a deterministic 12-char hex key for a set of package specs.
- * Ensures that { react, recharts } and { react, lodash } get separate
- * cache directories and never interfere with each other.
- *
- * @param {string[]} packages - sorted array of "name@version" specifiers
- * @returns {string} 12-char hex string
- */
 function depSetHash(packages) {
   return createHash('sha256')
     .update([...packages].sort().join('\n'))
@@ -66,21 +66,11 @@ function depSetHash(packages) {
     .slice(0, 12);
 }
 
-/**
- * Installs packages into a hash-keyed cache directory.
- * Uses --prefer-offline so npm reuses its global download cache when possible.
- *
- * Pinned versions ensure reproducible installs across time.
- */
 async function installDeps(bareImports, spinner) {
-  // Always include pinned React — it's the entry wrapper's dependency
   const depMap = {
     'react':     PINNED_REACT_VERSION,
     'react-dom': PINNED_REACT_DOM_VERSION,
   };
-
-  // Third-party deps: install at "latest" but within the npm lock.
-  // TODO: allow per-package version overrides via a config file.
   for (const pkg of bareImports) {
     depMap[pkg] = 'latest';
   }
@@ -89,7 +79,6 @@ async function installDeps(bareImports, spinner) {
   const cacheDir = join(homedir(), '.artifact-to-pwa', 'npm-deps', hashKey);
   const nmPath   = join(cacheDir, 'node_modules');
 
-  // Re-use existing install if the hash matches (deps haven't changed)
   if (existsSync(nmPath)) {
     spinner.text = `Dependencies cached (${Object.keys(depMap).join(', ')})`;
     return nmPath;
@@ -122,14 +111,6 @@ async function installDeps(bareImports, spinner) {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-/**
- * Bundles an artifact source file into a self-contained HTML string.
- *
- * @param {string} filePath   - Absolute path to source file
- * @param {{ appName: string, themeColor: string }} opts
- * @param {object} spinner    - ora spinner instance
- * @returns {Promise<string>} Complete HTML document
- */
 export async function bundleFile(filePath, { appName, themeColor }, spinner) {
   const code = readFileSync(filePath, 'utf8');
   if (!code.trim()) throw new Error(`File is empty: ${filePath}`);
@@ -137,12 +118,12 @@ export async function bundleFile(filePath, { appName, themeColor }, spinner) {
   const type = detectArtifactType(code);
   spinner.text = `Detected: ${type}`;
 
-  // ── Full HTML — pass through with Neutralino bridge injected ───────────────
+  // ── Full HTML ──────────────────────────────────────────────────────────────
   if (type === 'full-html') {
     return injectNeutralinoScript(code);
   }
 
-  // ── HTML fragment — wrap in shell document ─────────────────────────────────
+  // ── HTML fragment ──────────────────────────────────────────────────────────
   if (type === 'html-fragment') {
     return injectNeutralinoScript(
       `<!DOCTYPE html>\n<html lang="en">\n<head>\n` +
@@ -153,21 +134,25 @@ export async function bundleFile(filePath, { appName, themeColor }, spinner) {
     );
   }
 
-  // ── React / JSX — detect imports, strip React, esbuild bundle ─────────────
+  // ── React / JSX ────────────────────────────────────────────────────────────
 
-  // extractBareImports throws with a human-readable error for unsupported
-  // imports (Node builtins, Express, Electron, etc.) before esbuild runs.
+  // extractBareImports throws with a human-readable error for Node built-ins
+  // and known unsupported packages (express, electron, next, etc.)
   const bareImports = extractBareImports(code);
+  const nmPath      = await installDeps(bareImports, spinner);
 
-  const nmPath = await installDeps(bareImports, spinner);
-
-  // Strip React imports and normalise the default export
   const stripped = stripReactImports(code).trim();
   const { code: processed, rootComponent } = normaliseDefaultExport(stripped);
 
-  // Write a temporary esbuild entry that provides React and mounts the component
-  const artifactDir = dirname(filePath);   // same folder as the artifact
-  const entryPath   = join(artifactDir, `.atp-entry-${Date.now()}.jsx`);  writeFileSync(
+  // Write the temporary esbuild entry BESIDE the artifact (not in os.tmpdir).
+  // This is critical: esbuild resolves relative imports like "./styles.css" and
+  // "./icon.png" relative to the entry file's directory. If the entry lives in
+  // tmpdir, those paths point nowhere and the build fails. Placing the entry in
+  // the same directory as the artifact preserves all relative import resolution.
+  const artifactDir = dirname(filePath);
+  const entryPath   = join(artifactDir, `.atp-entry-${Date.now()}.jsx`);
+
+  writeFileSync(
     entryPath,
     `import React, {\n` +
     `  useState, useEffect, useRef, useCallback,\n` +
@@ -195,11 +180,13 @@ export async function bundleFile(filePath, { appName, themeColor }, spinner) {
       loader: {
         '.jsx': 'jsx', '.js': 'jsx',
         '.tsx': 'tsx', '.ts': 'ts',
-        '.css': 'text',         // CSS modules become strings
-        '.svg': 'dataurl',
-        '.png': 'dataurl',
-        '.jpg': 'dataurl',
-        '.gif': 'dataurl',
+        '.css':   'text',
+        '.svg':   'dataurl',
+        '.png':   'dataurl',
+        '.jpg':   'dataurl',
+        '.jpeg':  'dataurl',
+        '.gif':   'dataurl',
+        '.webp':  'dataurl',
         '.woff':  'dataurl',
         '.woff2': 'dataurl',
       },
@@ -211,7 +198,6 @@ export async function bundleFile(filePath, { appName, themeColor }, spinner) {
     });
     bundledJS = result.outputFiles[0].text;
   } catch (err) {
-    // Re-throw with cleaner message — raw esbuild errors can be verbose
     const lines = err.message.split('\n').slice(0, 10).join('\n');
     throw new Error(`esbuild:\n${lines}`);
   } finally {
