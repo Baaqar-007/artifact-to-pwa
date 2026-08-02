@@ -1,4 +1,9 @@
-# artifact-to-pwa
+# Native Artifact
+
+[![npm version](https://img.shields.io/npm/v/@baaqar/artifact-to-pwa)](https://www.npmjs.com/package/@baaqar/artifact-to-pwa)
+[![npm downloads](https://img.shields.io/npm/dw/@baaqar/artifact-to-pwa)](https://www.npmjs.com/package/@baaqar/artifact-to-pwa)
+[![license](https://img.shields.io/npm/l/@baaqar/artifact-to-pwa)](./LICENSE)
+[![node](https://img.shields.io/node/v/@baaqar/artifact-to-pwa)](https://nodejs.org)
 
 > Convert any Claude artifact (.jsx / .html) into a native Windows desktop application.
 > ~5 MB output. No compiler. No App Store. No manual setup.
