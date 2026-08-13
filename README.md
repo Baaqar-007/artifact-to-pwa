@@ -629,6 +629,8 @@ CSS imports, and image imports. Run with `npm test`.
 
 ### v3.0.1 - Linux compatibility
 
+- Linux support: extracts neutralino-linux_x64, marks executable, writes start.sh launcher
+- README-Launch.txt includes distro-specific WebKitGTK install instructions
 ---
 
 ## Architecture Reference
@@ -689,6 +691,10 @@ src/build.js            ← Orchestrates the three stages
 ---
 
 ## Changelog
+
+### v3.0.1
+- Linux support: extracts neutralino-linux_x64, marks executable, writes start.sh launcher
+- README-Launch.txt includes distro-specific WebKitGTK install instructions
 
 ### v3.0.0
 
