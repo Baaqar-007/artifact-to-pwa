@@ -138,7 +138,7 @@ async function runBuild(source, options, chalk) {
   try {
     await injectPayload({
       binPath:           shellAssets.binPath,
-      dllPath:           shellAssets.dllPath,   // ← new: WebView2Loader.dll
+      dllPath:           shellAssets.dllPath,   
       clientLibPath:     shellAssets.clientLibPath,
       neutralinoVersion: shellAssets.version,
       html, appName, slug, port, outDir, iconPath, chalk,
@@ -150,11 +150,16 @@ async function runBuild(source, options, chalk) {
 
   // ── Done ────────────────────────────────────────────────────────────────────
   const dirName = outDir.split(/[/\\]/).pop();
-  console.log(
-    '\n' + chalk.bold.green('  ✓ Done!\n') +
-    '\n' + chalk.gray('  Launch:    ') + chalk.white(`double-click ${dirName}\\${appName}.exe`) +
-    '\n' + chalk.gray('  To share:  ') + chalk.white(`zip the entire ${dirName}\\ folder`) +
-    '\n' + chalk.gray('  Requires:  ') + chalk.gray('WebView2 (pre-installed on Win 11 + updated Win 10)') +
-    '\n\n' + chalk.gray('  See README-Launch.txt for details.\n')
-  );
+const launcher = process.platform === 'win32' ? `${appName}.exe` : 'start.sh';
+const requires = process.platform === 'win32'
+  ? 'WebView2 (pre-installed on Win11 + updated Win10)'
+  : 'WebKitGTK (sudo apt install libwebkit2gtk-4.0-dev)';
+
+console.log(
+  '\n' + chalk.bold.green('  ✓ Done!\n') +
+  '\n' + chalk.gray('  Launch:    ') + chalk.white(`double-click ${dirName}/${launcher}`) +
+  '\n' + chalk.gray('  To share:  ') + chalk.white(`zip the entire ${dirName}/ folder`) +
+  '\n' + chalk.gray('  Requires:  ') + chalk.gray(requires) +
+  '\n\n' + chalk.gray('  See README-Launch.txt for details.\n')
+);
 }

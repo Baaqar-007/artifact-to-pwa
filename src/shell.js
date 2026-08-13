@@ -210,10 +210,11 @@ async function downloadFresh(cacheDir, chalk) {
   // Clean up ZIP now that binaries are extracted
   try { rmSync(zipPath); } catch {}
 
-  const binPath = join(cacheDir, 'neutralino-win_x64.exe');
-  if (!existsSync(binPath)) {
+  const binName = process.platform === 'win32' ? 'neutralino-win_x64.exe' : 'neutralino-linux_x64';
+const binPath = join(cacheDir, binName);
+if (!existsSync(binPath)) {
     throw new Error(
-      `neutralino-win_x64.exe not found after extraction.\n` +
+      `${binName} not found after extraction.\n` +
       `  Extracted to: ${cacheDir}\n` +
       `  Asset names may have changed — check: https://github.com/${BINARY_REPO}/releases/tag/v${NEUTRALINO_VERSION}`
     );
@@ -223,9 +224,14 @@ async function downloadFresh(cacheDir, chalk) {
   // These are used to verify the cache on subsequent runs.
   const digestFile = join(cacheDir, 'digests.json');
   writeFileSync(digestFile, JSON.stringify({
-    bin:    computeSHA256(binPath),
-    client: computeSHA256(clientLibPath),
-  }, null, 2));
+  'win32':  existsSync(join(cacheDir, 'neutralino-win_x64.exe'))
+              ? computeSHA256(join(cacheDir, 'neutralino-win_x64.exe'))
+              : null,
+  'linux':  existsSync(join(cacheDir, 'neutralino-linux_x64'))
+              ? computeSHA256(join(cacheDir, 'neutralino-linux_x64'))
+              : null,
+  'client': computeSHA256(clientLibPath),
+}, null, 2));
 
   return binPath;
 }
@@ -244,7 +250,8 @@ async function downloadFresh(cacheDir, chalk) {
  */
 export async function ensureShell(chalk) {
   const cacheDir      = join(CACHE_ROOT, `v${NEUTRALINO_VERSION}`);
-  const binPath       = join(cacheDir, 'neutralino-win_x64.exe');
+  const binName = process.platform === 'win32' ? 'neutralino-win_x64.exe' : 'neutralino-linux_x64';
+  const binPath       = join(cacheDir, binName);
   const dllPath       = join(cacheDir, 'WebView2Loader.dll');
   const clientLibPath = join(cacheDir, 'neutralino.js');
   const digestFile    = join(cacheDir, 'digests.json');
@@ -258,7 +265,8 @@ export async function ensureShell(chalk) {
     if (existsSync(digestFile)) {
       try {
         const stored = JSON.parse(readFileSync(digestFile, 'utf8'));
-        verifyDigest(binPath,       stored.bin);
+        const platformKey = process.platform === 'win32' ? 'win32' : 'linux';
+        verifyDigest(binPath, stored[platformKey]);
         verifyDigest(clientLibPath, stored.client);
 
         // Cache is valid

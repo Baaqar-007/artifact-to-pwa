@@ -1,7 +1,7 @@
 {
   "name": "@baaqar/artifact-to-pwa",
-  "version": "3.0.0",
-  "description": "Convert any Claude artifact (HTML/React/JSX) into a native Windows .exe — ~5 MB output via Neutralino + WebView2",
+  "version": "3.0.1",
+  "description": "Convert any Claude artifact (HTML/React/JSX) into a native .exe — ~5 MB output via Neutralino + WebView2",
   "type": "module",
   "publishConfig": { "access": "public" },
 

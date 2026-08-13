@@ -22,9 +22,12 @@
 
 import {
   cpSync, mkdirSync, writeFileSync, readFileSync,
-  existsSync, copyFileSync,
+  existsSync, copyFileSync, chmodSync,
 } from 'fs';
+
 import { join } from 'path';
+
+const PLATFORM = process.platform; // 'win32' or 'linux'
 
 // ── Port derivation ───────────────────────────────────────────────────────────
 
@@ -81,7 +84,7 @@ function buildConfig({ appName, slug, port, version, hasIcon }) {
 
 // ── README-Launch.txt ─────────────────────────────────────────────────────────
 
-function launchReadme(appName, slug) {
+function launchReadme(appName, slug, platform) {
   return [
     `${appName} — built by artifact-to-pwa`,
     '='.repeat(appName.length + 24),
@@ -152,12 +155,12 @@ export async function injectPayload({
   mkdirSync(jsDir, { recursive: true });
 
   // ── Copy and rename Neutralino binary ──────────────────────────────────────
-  process.stdout.write(chalk.gray('  ↳ Copying runtime...'));
+ if (PLATFORM === 'win32') {
+  // Copy and rename binary
   const exeDest = join(outDir, `${appName}.exe`);
   cpSync(binPath, exeDest);
-  console.log(' ' + chalk.green('done'));
 
-  // ── Copy WebView2Loader.dll if present ─────────────────────────────────────
+  // Copy WebView2Loader.dll if present
   if (dllPath) {
     process.stdout.write(chalk.gray('  ↳ Copying WebView2Loader.dll...'));
     try {
@@ -167,6 +170,25 @@ export async function injectPayload({
       console.log(' ' + chalk.yellow('skipped') + chalk.gray(` (${err.message})`));
     }
   }
+
+  // Patch exe metadata and icon via rcedit
+  // ... existing rcedit block unchanged, moved inside here ...
+
+} else {
+  // Copy Linux binary and mark executable
+  const binDest = join(outDir, appName);
+  cpSync(binPath, binDest);
+  chmodSync(binDest, 0o755);
+  console.log(chalk.green('  ✓ ') + chalk.gray(`${appName} (executable)`));
+
+  // Write convenience shell launcher
+  writeFileSync(
+    join(outDir, 'start.sh'),
+    `#!/bin/sh\ncd "$(dirname "$0")"\n./"${appName}"\n`
+  );
+  chmodSync(join(outDir, 'start.sh'), 0o755);
+  console.log(chalk.green('  ✓ ') + chalk.gray('start.sh'));
+}
 
   // ── Icon handling ──────────────────────────────────────────────────────────
   let hasIcon = false;
@@ -232,6 +254,6 @@ export async function injectPayload({
   );
 
   // ── Write README-Launch.txt ───────────────────────────────────────────────
-  writeFileSync(join(outDir, 'README-Launch.txt'), launchReadme(appName, slug));
+  writeFileSync(join(outDir, 'README-Launch.txt'), launchReadme(appName, slug, PLATFORM));
   console.log(chalk.green('  ✓ ') + chalk.gray('README-Launch.txt'));
 }

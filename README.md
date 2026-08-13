@@ -5,7 +5,7 @@
 [![license](https://img.shields.io/npm/l/@baaqar/artifact-to-pwa)](./LICENSE)
 [![node](https://img.shields.io/node/v/@baaqar/artifact-to-pwa)](https://nodejs.org)
 
-> Convert any Claude artifact (.jsx / .html) into a native Windows desktop application.
+> Convert any Claude artifact (.jsx / .html) into a native desktop application.
 > ~5 MB output. No compiler. No App Store. No manual setup.
 
 ```bash
@@ -46,6 +46,7 @@ permanently. Subsequent builds finish in under a second.
 **Requirements:**
 - Node.js 18 or later
 - Windows 10 (updated after January 2023) or Windows 11
+- Linux: Ubuntu 20.04+, Fedora 36+, or Arch with WebKitGTK installed
 - Internet connection on first build only
 
 ---
@@ -84,6 +85,16 @@ my-tool-windows/          (~5 MB total)
 │   └── js/
 │       └── neutralino.js ← Neutralino client bridge
 └── README-Launch.txt     ← SmartScreen bypass instructions
+```
+```
+my-tool-linux/
+├── My Tool          ← run this (or start.sh)
+├── start.sh         ← convenience launcher
+├── neutralino.config.json
+├── resources/
+│   ├── index.html
+│   └── js/neutralino.js
+└── README-Launch.txt
 ```
 
 To share the app: **zip the entire folder** and send it.
@@ -619,6 +630,8 @@ framework, available since Node 18). It covers detection logic, unsupported
 import error messages, and end-to-end bundling of representative artifact
 patterns: simple React, Tailwind, localStorage usage, full HTML passthrough,
 CSS imports, and image imports. Run with `npm test`.
+
+### v3.0.1 - Linux compatibility
 
 ---
 
