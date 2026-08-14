@@ -17,11 +17,11 @@
  *     incorrect Content-Length values.
  */
 
-import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
+import { createWriteStream, createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { join }       from 'path';
 import { homedir }    from 'os';
 import { createHash } from 'crypto';
-import extractZip     from 'extract-zip';
+import unzipper       from 'unzipper';
 
 // ── Pinned versions ───────────────────────────────────────────────────────────
 // Update these together when upgrading. Run the compat test suite after any bump.
@@ -204,8 +204,13 @@ async function downloadFresh(cacheDir, chalk) {
 
   // Extract binary and DLL from ZIP
   process.stdout.write(chalk.gray('  ↳ Extracting...'));
-  await extractZip(zipPath, { dir: cacheDir });
-  console.log(' ' + chalk.green('done'));
+await new Promise((resolve, reject) => {
+  createReadStream(zipPath)
+    .pipe(unzipper.Extract({ path: cacheDir }))
+    .on('close', resolve)
+    .on('error', reject);
+});
+console.log(' ' + chalk.green('done'));
 
   // Clean up ZIP now that binaries are extracted
   try { rmSync(zipPath); } catch {}

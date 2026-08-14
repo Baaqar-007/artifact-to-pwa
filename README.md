@@ -631,6 +631,9 @@ CSS imports, and image imports. Run with `npm test`.
 
 - Linux support: extracts neutralino-linux_x64, marks executable, writes start.sh launcher
 - README-Launch.txt includes distro-specific WebKitGTK install instructions
+
+### v3.0.2 - High vulnerability
+- Replaced extract-zip with unzipper (resolves high severity symlink path traversal advisory GHSA-jmr9-qjv8-65gv)
 ---
 
 ## Architecture Reference
@@ -691,6 +694,9 @@ src/build.js            ← Orchestrates the three stages
 ---
 
 ## Changelog
+
+### v3.0.2
+- Replaced extract-zip with unzipper (resolves high severity symlink path traversal advisory GHSA-jmr9-qjv8-65gv)
 
 ### v3.0.1
 - Linux support: extracts neutralino-linux_x64, marks executable, writes start.sh launcher
