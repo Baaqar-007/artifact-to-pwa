@@ -8,10 +8,7 @@
 > Convert any Claude artifact (.jsx / .html) into a native desktop application.
 > ~5 MB output. No compiler. No App Store. No manual setup.
 
-```bash
-npx artifact-to-pwa ./my-app.jsx --name "My Tool"
-```
-
+<img src="https://github.com/Baaqar-007/artifact-to-pwa/raw/main/assets/Animation.gif" width="700" alt="Demo Animation" />
 ---
 
 ## Table of Contents
